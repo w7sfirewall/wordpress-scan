@@ -36,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def configure_logging(verbose: bool) -> None:
-    """Configure loguru output for console logging."""
+    """Configure loguru output for CLI messages."""
     logger.remove()
     min_level = "DEBUG" if verbose else "INFO"
     error_level_no = logger.level("ERROR").no
@@ -55,36 +55,52 @@ def format_json_output(result: dict[str, Any]) -> str:
     return json.dumps(result, indent=2)
 
 
+def _build_aligned_table(rows: list[list[str]]) -> list[str]:
+    """Return table rows with simple aligned columns."""
+    if not rows:
+        return []
+
+    column_widths = [0] * len(rows[0])
+    for row in rows:
+        for index, value in enumerate(row):
+            column_widths[index] = max(column_widths[index], len(value))
+
+    return [
+        " | ".join(value.ljust(column_widths[index]) for index, value in enumerate(row))
+        for row in rows
+    ]
+
+
 def format_table_output(result: dict[str, Any]) -> str:
     """Render scan result as a human-readable table."""
     summary = result.get("summary", {})
     scanned_files = summary.get("scanned_files", 0)
     findings_count = summary.get("findings_count", 0)
-    duration_ms = summary.get("duration_ms", 0)
+
+    findings = result.get("findings", [])
+
+    table_rows: list[list[str]] = [
+        ["FILE", "LINE", "METHOD", "KIND", "CONFIDENCE"],
+    ]
+    for finding in findings:
+        table_rows.append(
+            [
+                str(finding.get("file", "")),
+                str(finding.get("line", "")),
+                str(finding.get("method", "")),
+                str(finding.get("kind", "")),
+                str(finding.get("confidence", "")),
+            ]
+        )
 
     lines = [
         "=== Scan Summary ===",
         f"Scanned files: {scanned_files}",
         f"Findings: {findings_count}",
-        f"Duration: {duration_ms} ms",
         "",
         "=== Findings ===",
-        "FILE | LINE | METHOD | KIND | CONFIDENCE",
+        *_build_aligned_table(table_rows),
     ]
-
-    findings = result.get("findings", [])
-    for finding in findings:
-        lines.append(
-            " | ".join(
-                [
-                    str(finding.get("file", "")),
-                    str(finding.get("line", "")),
-                    str(finding.get("method", "")),
-                    str(finding.get("kind", "")),
-                    str(finding.get("confidence", "")),
-                ]
-            )
-        )
 
     return "\n".join(lines)
 
