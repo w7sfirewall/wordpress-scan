@@ -1,16 +1,20 @@
 """Scanner engine implementation."""
 
+from __future__ import annotations
+
 from typing import Any
+
+from scanner.filesystem import collect_source_files
 
 
 def scan(path: str) -> dict[str, Any]:
-    """Scan a directory path and return Step 1 stub output."""
-    _ = path
+    """Scan filesystem and return Step 1 result payload."""
+    source_files = collect_source_files(path)
+
     return {
         "summary": {
-            "scanned_files": 0,
+            "scanned_files": len(source_files),
             "findings_count": 0,
-            "duration_ms": 0,
         },
         "findings": [],
     }
