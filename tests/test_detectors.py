@@ -137,18 +137,18 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
     assert _has_finding(
         findings,
         line=16,
-        method="UNKNOWN",
+        method="POST",
         kind="ajax",
         url="/wp-admin/admin-ajax.php?action=my_action",
-        confidence="medium",
+        confidence="high",
     )
     assert _has_finding(
         findings,
         line=17,
-        method="UNKNOWN",
+        method="POST",
         kind="ajax",
         url="/wp-admin/admin-ajax.php?action=guest_action",
-        confidence="medium",
+        confidence="high",
     )
 
     http_api_evidences = [

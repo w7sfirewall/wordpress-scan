@@ -220,10 +220,10 @@ def detect_file(file_path: str | Path, root_path: str | Path) -> list[Finding]:
                 _make_finding(
                     relative_file=relative_file,
                     line_no=line_no,
-                    method="UNKNOWN",
+                    method="POST",
                     kind="ajax",
                     evidence=trimmed_line,
-                    confidence="medium",
+                    confidence="high",
                     url=f"/wp-admin/admin-ajax.php?action={action_name}",
                 )
             )
