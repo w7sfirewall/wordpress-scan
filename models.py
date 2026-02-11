@@ -21,6 +21,7 @@ class Finding:
     kind: FindingKind
     evidence: str
     confidence: ConfidenceLevel
+    url: str | None = None
 
     @property
     def dedupe_key(self) -> tuple[str, int, MethodType, FindingKind]:
@@ -33,7 +34,7 @@ class Finding:
         payload = f"{self.file}:{self.line}:{self.method}:{self.kind}"
         return sha1(payload.encode("utf-8")).hexdigest()
 
-    def to_dict(self) -> dict[str, str | int]:
+    def to_dict(self) -> dict[str, str | int | None]:
         """Serialize finding to dictionary output."""
         return {
             "id": self.id,
@@ -43,4 +44,5 @@ class Finding:
             "kind": self.kind,
             "evidence": self.evidence,
             "confidence": self.confidence,
+            "url": self.url,
         }

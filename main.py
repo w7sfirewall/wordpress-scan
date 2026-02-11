@@ -78,7 +78,7 @@ def format_table_output(result: dict[str, Any]) -> str:
     findings = result.get("findings", [])
 
     table_rows: list[list[str]] = [
-        ["FILE", "LINE", "METHOD", "KIND", "CONFIDENCE"],
+        ["FILE", "LINE", "METHOD", "KIND", "CONFIDENCE", "URL"],
     ]
     for finding in findings:
         table_rows.append(
@@ -88,6 +88,7 @@ def format_table_output(result: dict[str, Any]) -> str:
                 str(finding.get("method", "")),
                 str(finding.get("kind", "")),
                 str(finding.get("confidence", "")),
+                str(finding.get("url") or "-"),
             ]
         )
 

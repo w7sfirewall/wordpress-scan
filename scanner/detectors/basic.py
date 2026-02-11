@@ -9,12 +9,23 @@ from models import ConfidenceLevel, Finding, FindingKind, MethodType
 
 WP_REMOTE_POST_RE = re.compile(r"\bwp_remote_post\s*\(")
 WP_REMOTE_REQUEST_RE = re.compile(r"\bwp_remote_request\s*\(")
+WP_REMOTE_POST_URL_RE = re.compile(
+    r"""\bwp_remote_post\s*\(\s*(?P<quote>['"])(?P<url>[^'"]+)(?P=quote)"""
+)
+WP_REMOTE_REQUEST_URL_RE = re.compile(
+    r"""\bwp_remote_request\s*\(\s*(?P<quote>['"])(?P<url>[^'"]+)(?P=quote)"""
+)
 HTTP_METHOD_RE = re.compile(
     r"""['"]method['"]\s*=>\s*['"](POST|PUT|PATCH)['"]""",
     re.IGNORECASE,
 )
 
 REGISTER_REST_ROUTE_RE = re.compile(r"\bregister_rest_route\s*\(")
+REGISTER_REST_ROUTE_ARGS_RE = re.compile(
+    r"""\bregister_rest_route\s*\(\s*"""
+    r"""(?P<q1>['"])(?P<namespace>[^'"]+)(?P=q1)\s*,\s*"""
+    r"""(?P<q2>['"])(?P<route>[^'"]+)(?P=q2)"""
+)
 REST_METHOD_ASSIGNMENT_RE = re.compile(r"""['"]methods['"]\s*=>\s*(.+)""", re.IGNORECASE)
 REST_METHOD_TOKEN_RE = re.compile(
     r"""['"](POST|PUT|PATCH|CREATABLE|EDITABLE)['"]""",
@@ -22,7 +33,9 @@ REST_METHOD_TOKEN_RE = re.compile(
 )
 
 ADMIN_POST_RE = re.compile(r"""\badd_action\s*\(\s*['"]admin_post_[^'"]*['"]""")
-AJAX_RE = re.compile(r"""\badd_action\s*\(\s*['"]wp_ajax_[^'"]*['"]""")
+AJAX_RE = re.compile(
+    r"""\badd_action\s*\(\s*['"]wp_ajax_(?:nopriv_)?(?P<action>[A-Za-z0-9_]+)['"]"""
+)
 
 
 def _resolve_rest_method(token: str) -> tuple[MethodType, ConfidenceLevel]:
@@ -57,6 +70,7 @@ def _make_finding(
     kind: FindingKind,
     evidence: str,
     confidence: ConfidenceLevel,
+    url: str | None = None,
 ) -> Finding:
     """Create a finding model instance."""
     return Finding(
@@ -66,6 +80,7 @@ def _make_finding(
         kind=kind,
         evidence=evidence,
         confidence=confidence,
+        url=url,
     )
 
 
@@ -87,6 +102,7 @@ def detect_file(file_path: str | Path, root_path: str | Path) -> list[Finding]:
                 continue
 
             if WP_REMOTE_POST_RE.search(trimmed_line):
+                remote_post_match = WP_REMOTE_POST_URL_RE.search(trimmed_line)
                 findings.append(
                     _make_finding(
                         relative_file=relative_file,
@@ -95,12 +111,14 @@ def detect_file(file_path: str | Path, root_path: str | Path) -> list[Finding]:
                         kind="wp_http_api",
                         evidence=trimmed_line,
                         confidence="high",
+                        url=remote_post_match.group("url") if remote_post_match else None,
                     )
                 )
 
             if WP_REMOTE_REQUEST_RE.search(trimmed_line):
                 request_method_match = HTTP_METHOD_RE.search(trimmed_line)
                 if request_method_match:
+                    request_url_match = WP_REMOTE_REQUEST_URL_RE.search(trimmed_line)
                     findings.append(
                         _make_finding(
                             relative_file=relative_file,
@@ -109,10 +127,18 @@ def detect_file(file_path: str | Path, root_path: str | Path) -> list[Finding]:
                             kind="wp_http_api",
                             evidence=trimmed_line,
                             confidence="high",
+                            url=request_url_match.group("url") if request_url_match else None,
                         )
                     )
 
             if REGISTER_REST_ROUTE_RE.search(trimmed_line):
+                route_args_match = REGISTER_REST_ROUTE_ARGS_RE.search(trimmed_line)
+                rest_url = None
+                if route_args_match:
+                    namespace = route_args_match.group("namespace")
+                    route = route_args_match.group("route")
+                    rest_url = f"/wp-json/{namespace}{route}"
+
                 for method, confidence in _extract_rest_methods(trimmed_line):
                     findings.append(
                         _make_finding(
@@ -122,6 +148,7 @@ def detect_file(file_path: str | Path, root_path: str | Path) -> list[Finding]:
                             kind="rest_route",
                             evidence=trimmed_line,
                             confidence=confidence,
+                            url=rest_url,
                         )
                     )
 
@@ -137,7 +164,9 @@ def detect_file(file_path: str | Path, root_path: str | Path) -> list[Finding]:
                     )
                 )
 
-            if AJAX_RE.search(trimmed_line):
+            ajax_match = AJAX_RE.search(trimmed_line)
+            if ajax_match:
+                action_name = ajax_match.group("action")
                 findings.append(
                     _make_finding(
                         relative_file=relative_file,
@@ -146,6 +175,7 @@ def detect_file(file_path: str | Path, root_path: str | Path) -> list[Finding]:
                         kind="ajax",
                         evidence=trimmed_line,
                         confidence="medium",
+                        url=f"/wp-admin/admin-ajax.php?action={action_name}",
                     )
                 )
 
