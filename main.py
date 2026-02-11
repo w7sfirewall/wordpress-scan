@@ -38,16 +38,13 @@ def build_parser() -> argparse.ArgumentParser:
 def configure_logging(verbose: bool) -> None:
     """Configure loguru output for CLI messages."""
     logger.remove()
-    min_level = "DEBUG" if verbose else "INFO"
-    error_level_no = logger.level("ERROR").no
-
     logger.add(
         sys.stdout,
-        level=min_level,
+        level="DEBUG" if verbose else "INFO",
         format="{message}",
-        filter=lambda record: record["level"].no < error_level_no,
+        filter=lambda record: record["level"].name in {"INFO", "DEBUG"},
     )
-    logger.add(sys.stderr, level="ERROR", format="{message}")
+    logger.add(sys.stderr, level="WARNING", format="{message}")
 
 
 def format_json_output(result: dict[str, Any]) -> str:
@@ -76,6 +73,7 @@ def format_table_output(result: dict[str, Any]) -> str:
     summary = result.get("summary", {})
     scanned_files = summary.get("scanned_files", 0)
     findings_count = summary.get("findings_count", 0)
+    duration_ms = summary.get("duration_ms", 0)
 
     findings = result.get("findings", [])
 
@@ -97,6 +95,7 @@ def format_table_output(result: dict[str, Any]) -> str:
         "=== Scan Summary ===",
         f"Scanned files: {scanned_files}",
         f"Findings: {findings_count}",
+        f"Duration: {duration_ms} ms",
         "",
         "=== Findings ===",
         *_build_aligned_table(table_rows),
@@ -127,7 +126,11 @@ def main() -> int:
     if args.verbose:
         logger.debug(f"[DEBUG] Starting scan for: {target_path}")
 
-    result = scan(str(target_path))
+    try:
+        result = scan(str(target_path))
+    except Exception as exc:
+        logger.error(f"Error: scan failed: {exc}")
+        return 1
 
     if args.format == "json":
         rendered_output = format_json_output(result)
@@ -145,7 +148,8 @@ def main() -> int:
         if args.verbose:
             logger.debug(f"[DEBUG] Wrote output to: {args.output}")
 
-    return 0
+    findings_count = int(result.get("summary", {}).get("findings_count", 0))
+    return 2 if findings_count > 0 else 0
 
 
 if __name__ == "__main__":

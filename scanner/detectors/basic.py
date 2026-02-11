@@ -80,7 +80,7 @@ def detect_file(file_path: str | Path, root_path: str | Path) -> list[Finding]:
         relative_file = resolved_file.as_posix()
 
     findings: list[Finding] = []
-    with resolved_file.open("r", encoding="utf-8", errors="ignore") as file_handle:
+    with resolved_file.open("r", encoding="utf-8") as file_handle:
         for line_no, line in enumerate(file_handle, start=1):
             trimmed_line = line.strip()
             if not trimmed_line:
