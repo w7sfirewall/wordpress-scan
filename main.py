@@ -1,7 +1,5 @@
 """CLI entry point for the WordPress endpoint scanner."""
 
-from __future__ import annotations
-
 import argparse
 import json
 import sys

@@ -1,7 +1,5 @@
 """Basic regex detectors for WordPress mutation endpoints."""
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 

@@ -1,7 +1,5 @@
 """Scanner engine implementation."""
 
-from __future__ import annotations
-
 from pathlib import Path
 from time import perf_counter
 from typing import Any

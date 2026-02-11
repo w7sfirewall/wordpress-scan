@@ -1,7 +1,5 @@
 """Filesystem utilities for source file discovery."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 INCLUDED_EXTENSIONS = {".php", ".inc", ".phtml"}

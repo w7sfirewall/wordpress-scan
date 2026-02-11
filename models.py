@@ -1,7 +1,5 @@
 """Data models for scanner results."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from hashlib import sha1
 from typing import Literal
