@@ -86,7 +86,7 @@ def format_table_output(result: dict[str, Any]) -> str:
                 str(finding.get("method", "")),
                 str(finding.get("kind", "")),
                 str(finding.get("confidence", "")),
-                str(finding.get("url") or "-"),
+                str(finding.get("url", "")),
             ]
         )
 

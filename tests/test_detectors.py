@@ -11,7 +11,7 @@ def _has_finding(
     line: int,
     method: str,
     kind: str,
-    url: str | None,
+    url: str,
     confidence: str,
 ) -> bool:
     """Return True when one finding matches all expected fields."""
@@ -25,8 +25,8 @@ def _has_finding(
     )
 
 
-def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: Path) -> None:
-    """Verify detector extracts expected fields across supported patterns."""
+def test_detector_extracts_mutation_findings_only(tmp_path: Path) -> None:
+    """Verify detector emits only resolved mutation findings with stable fields."""
     sample_file = tmp_path / "sample.php"
     sample_file.write_text(
         "\n".join(
@@ -48,6 +48,7 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
                 "register_rest_route('demo/v1', '/create', ['methods' => 'CREATABLE']);",
                 "add_action('wp_ajax_my_action', 'handler');",
                 'add_action("wp_ajax_nopriv_guest_action", "handler");',
+                "add_action('admin_post_sync_now', 'handler');",
             ]
         )
         + "\n",
@@ -74,33 +75,12 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
     )
     assert _has_finding(
         findings,
-        line=5,
-        method="POST",
-        kind="wp_http_api",
-        url=None,
-        confidence="medium",
-    )
-    assert _has_finding(
-        findings,
         line=6,
         method="PATCH",
         kind="wp_http_api",
         url="https://example.test",
         confidence="high",
     )
-    assert _has_finding(
-        findings,
-        line=10,
-        method="PUT",
-        kind="wp_http_api",
-        url=None,
-        confidence="medium",
-    )
-    assert not any(
-        finding["kind"] == "wp_http_api" and finding["method"] == "GET"
-        for finding in findings
-    )
-
     assert _has_finding(
         findings,
         line=13,
@@ -133,7 +113,6 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
         url="/wp-json/demo/v1/create",
         confidence="medium",
     )
-
     assert _has_finding(
         findings,
         line=16,
@@ -150,8 +129,55 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
         url="/wp-admin/admin-ajax.php?action=guest_action",
         confidence="high",
     )
+    assert _has_finding(
+        findings,
+        line=18,
+        method="POST",
+        kind="admin_post",
+        url="/wp-admin/admin-post.php?action=sync_now",
+        confidence="high",
+    )
 
-    http_api_evidences = [
-        finding["evidence"] for finding in findings if finding["kind"] == "wp_http_api"
-    ]
-    assert "wp_remote_request(" in http_api_evidences
+    assert all(finding["method"] in {"POST", "PUT", "PATCH"} for finding in findings)
+    assert all(isinstance(finding["url"], str) and finding["url"] for finding in findings)
+
+    assert not any(
+        finding["kind"] == "wp_http_api" and finding["line"] in {5, 10, 11, 12}
+        for finding in findings
+    )
+
+
+def test_detector_skips_wp_remote_function_definitions(tmp_path: Path) -> None:
+    """Verify function definitions of wp_remote_* are not emitted as findings."""
+    sample_file = tmp_path / "defs.php"
+    sample_file.write_text(
+        "\n".join(
+            [
+                "<?php",
+                "function wp_remote_post($url, $args = array()) {",
+                "    return false;",
+                "}",
+                "function wp_remote_request($url, $args = array()) {",
+                "    return false;",
+                "}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    findings = detect_file(sample_file, tmp_path)
+    assert findings == []
+
+
+def test_detector_skips_http_core_files(tmp_path: Path) -> None:
+    """Verify detector ignores WordPress HTTP core implementation files."""
+    core_file = tmp_path / "wp-includes" / "class-wp-http-curl.php"
+    core_file.parent.mkdir(parents=True, exist_ok=True)
+    core_file.write_text(
+        "<?php\nwp_remote_post('https://example.com/should-not-appear', $args);\n",
+        encoding="utf-8",
+    )
+
+    findings = detect_file(core_file, tmp_path)
+    assert findings == []

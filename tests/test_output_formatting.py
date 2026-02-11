@@ -26,12 +26,12 @@ def test_json_formatting_from_scan_contains_url_field(tmp_path: Path) -> None:
     assert payload["findings"][0]["url"] == "https://example.com/endpoint"
 
 
-def test_table_output_prints_url_column_and_placeholder_for_missing_url(
+def test_table_output_prints_url_column_without_placeholder_noise(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Verify table output includes URL column and '-' for missing URL values."""
+    """Verify table output includes URL column and no unresolved URL placeholder."""
     sample_file = tmp_path / "sample.php"
     sample_file.write_text(
         "\n".join(
@@ -61,4 +61,4 @@ def test_table_output_prints_url_column_and_placeholder_for_missing_url(
     assert "CONFIDENCE" in captured.out
     assert "URL" in captured.out
     assert "https://example.com/with-url" in captured.out
-    assert " | -" in captured.out or "| -" in captured.out
+    assert " | -" not in captured.out

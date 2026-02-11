@@ -1,4 +1,11 @@
-"""Scanner engine implementation."""
+"""Scanner engine implementation.
+
+Limitations:
+- No full PHP AST parsing
+- No dynamic concatenation resolution
+- No inter-file variable tracking
+- Literal and simple variable resolution only
+"""
 
 from pathlib import Path
 from time import perf_counter
@@ -13,7 +20,7 @@ from scanner.filesystem import collect_source_files
 
 def _deduplicate_findings(findings: list[Finding]) -> list[Finding]:
     """Deduplicate findings by file, line, method, and url."""
-    unique_findings: dict[tuple[str, int, MethodType, str | None], Finding] = {}
+    unique_findings: dict[tuple[str, int, MethodType, str], Finding] = {}
     for finding in findings:
         if finding.dedupe_key not in unique_findings:
             unique_findings[finding.dedupe_key] = finding
@@ -24,7 +31,7 @@ def scan(path: str) -> dict[str, Any]:
     """Scan filesystem and return Step 1 result payload."""
     started_at = perf_counter()
     root_path = Path(path).resolve()
-    source_files = collect_source_files(path)
+    source_files = sorted(collect_source_files(path))
     scanned_files = 0
     findings: list[Finding] = []
 
@@ -38,13 +45,17 @@ def scan(path: str) -> dict[str, Any]:
             logger.warning(f"Skipping unreadable file: {file_path} ({exc})")
 
     deduplicated_findings = _deduplicate_findings(findings)
+    sorted_findings = sorted(
+        deduplicated_findings,
+        key=lambda finding: (finding.file, finding.line, finding.method, finding.url),
+    )
     duration_ms = int((perf_counter() - started_at) * 1000)
 
     return {
         "summary": {
             "scanned_files": scanned_files,
-            "findings_count": len(deduplicated_findings),
+            "findings_count": len(sorted_findings),
             "duration_ms": duration_ms,
         },
-        "findings": [finding.to_dict() for finding in deduplicated_findings],
+        "findings": [finding.to_dict() for finding in sorted_findings],
     }
