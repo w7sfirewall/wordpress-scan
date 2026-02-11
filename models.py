@@ -22,14 +22,14 @@ class Finding:
     url: str | None = None
 
     @property
-    def dedupe_key(self) -> tuple[str, int, MethodType, FindingKind]:
+    def dedupe_key(self) -> tuple[str, int, MethodType, str | None]:
         """Return key used for deduplication."""
-        return (self.file, self.line, self.method, self.kind)
+        return (self.file, self.line, self.method, self.url)
 
     @property
     def id(self) -> str:
         """Return stable finding id based on key fields."""
-        payload = f"{self.file}:{self.line}:{self.method}:{self.kind}"
+        payload = f"{self.file}:{self.line}:{self.method}:{self.kind}:{self.url or '-'}"
         return sha1(payload.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, str | int | None]:

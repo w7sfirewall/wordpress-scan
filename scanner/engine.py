@@ -6,14 +6,14 @@ from typing import Any
 
 from loguru import logger
 
-from models import Finding, FindingKind, MethodType
+from models import Finding, MethodType
 from scanner.detectors import detect_file
 from scanner.filesystem import collect_source_files
 
 
 def _deduplicate_findings(findings: list[Finding]) -> list[Finding]:
-    """Deduplicate findings by file, line, method, and kind."""
-    unique_findings: dict[tuple[str, int, MethodType, FindingKind], Finding] = {}
+    """Deduplicate findings by file, line, method, and url."""
+    unique_findings: dict[tuple[str, int, MethodType, str | None], Finding] = {}
     for finding in findings:
         if finding.dedupe_key not in unique_findings:
             unique_findings[finding.dedupe_key] = finding

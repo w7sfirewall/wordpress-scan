@@ -5,17 +5,19 @@ from pathlib import Path
 
 from models import ConfidenceLevel, Finding, FindingKind, MethodType
 
-WP_REMOTE_POST_RE = re.compile(r"\bwp_remote_post\s*\(")
-WP_REMOTE_REQUEST_RE = re.compile(r"\bwp_remote_request\s*\(")
-WP_REMOTE_POST_URL_RE = re.compile(
-    r"""\bwp_remote_post\s*\(\s*(?P<quote>['"])(?P<url>[^'"]+)(?P=quote)"""
+WP_HTTP_CALL_RE = re.compile(
+    r"""wp_remote_(post|request|get)\s*\((.*?)\)""",
+    re.IGNORECASE | re.DOTALL,
 )
-WP_REMOTE_REQUEST_URL_RE = re.compile(
-    r"""\bwp_remote_request\s*\(\s*(?P<quote>['"])(?P<url>[^'"]+)(?P=quote)"""
-)
-HTTP_METHOD_RE = re.compile(
+WP_HTTP_METHOD_RE = re.compile(
     r"""['"]method['"]\s*=>\s*['"](POST|PUT|PATCH)['"]""",
-    re.IGNORECASE,
+    re.IGNORECASE | re.DOTALL,
+)
+FIRST_ARGUMENT_LITERAL_RE = re.compile(r"""^\s*['"]([^'"]+)['"]""", re.DOTALL)
+FIRST_ARGUMENT_VARIABLE_RE = re.compile(r"""^\s*(\$[a-zA-Z_][a-zA-Z0-9_]*)""", re.DOTALL)
+VARIABLE_ASSIGNMENT_RE = re.compile(
+    r"""\$([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*['"]([^'"]+)['"]\s*;""",
+    re.IGNORECASE | re.DOTALL,
 )
 
 REGISTER_REST_ROUTE_RE = re.compile(r"\bregister_rest_route\s*\(")
@@ -61,6 +63,44 @@ def _extract_rest_methods(line: str) -> list[tuple[MethodType, ConfidenceLevel]]
     return resolved_methods
 
 
+def _collect_variable_assignments(content: str) -> dict[str, str]:
+    """Collect simple variable assignments to literal strings in this file."""
+    assignments: dict[str, str] = {}
+    for variable_name, literal_value in VARIABLE_ASSIGNMENT_RE.findall(content):
+        assignments[f"${variable_name}"] = literal_value
+    return assignments
+
+
+def _extract_first_argument_url(
+    argument_block: str,
+    assignments: dict[str, str],
+) -> tuple[str | None, ConfidenceLevel]:
+    """Extract first-argument URL from a call argument block."""
+    literal_match = FIRST_ARGUMENT_LITERAL_RE.search(argument_block)
+    if literal_match:
+        return literal_match.group(1), "high"
+
+    variable_match = FIRST_ARGUMENT_VARIABLE_RE.search(argument_block)
+    if variable_match:
+        variable_name = variable_match.group(1)
+        return assignments.get(variable_name), "medium"
+
+    return None, "medium"
+
+
+def _resolve_http_method(function_name: str, argument_block: str) -> MethodType:
+    """Resolve method for wp_remote_* calls."""
+    function_name = function_name.lower()
+    if function_name == "post":
+        return "POST"
+    if function_name == "request":
+        method_match = WP_HTTP_METHOD_RE.search(argument_block)
+        if method_match:
+            return method_match.group(1).upper()
+        return "UNKNOWN"
+    return "UNKNOWN"
+
+
 def _make_finding(
     relative_file: str,
     line_no: int,
@@ -82,8 +122,46 @@ def _make_finding(
     )
 
 
+def _detect_wp_http_api(
+    content: str,
+    relative_file: str,
+) -> list[Finding]:
+    """Detect wp_remote_* calls from whole-file content."""
+    findings: list[Finding] = []
+    assignments = _collect_variable_assignments(content)
+
+    for match in WP_HTTP_CALL_RE.finditer(content):
+        function_name = match.group(1)
+        argument_block = match.group(2)
+        line_no = content.count("\n", 0, match.start()) + 1
+
+        method = _resolve_http_method(function_name=function_name, argument_block=argument_block)
+        if method not in {"POST", "PUT", "PATCH"}:
+            continue
+
+        url, confidence = _extract_first_argument_url(
+            argument_block=argument_block,
+            assignments=assignments,
+        )
+        evidence = match.group(0).strip().splitlines()[0].strip()
+
+        findings.append(
+            _make_finding(
+                relative_file=relative_file,
+                line_no=line_no,
+                method=method,
+                kind="wp_http_api",
+                evidence=evidence,
+                confidence=confidence,
+                url=url,
+            )
+        )
+
+    return findings
+
+
 def detect_file(file_path: str | Path, root_path: str | Path) -> list[Finding]:
-    """Detect findings in one file using line-by-line regex checks."""
+    """Detect findings in one file."""
     resolved_file = Path(file_path).resolve()
     resolved_root = Path(root_path).resolve()
 
@@ -92,89 +170,62 @@ def detect_file(file_path: str | Path, root_path: str | Path) -> list[Finding]:
     except ValueError:
         relative_file = resolved_file.as_posix()
 
-    findings: list[Finding] = []
     with resolved_file.open("r", encoding="utf-8") as file_handle:
-        for line_no, line in enumerate(file_handle, start=1):
-            trimmed_line = line.strip()
-            if not trimmed_line:
-                continue
+        content = file_handle.read()
 
-            if WP_REMOTE_POST_RE.search(trimmed_line):
-                remote_post_match = WP_REMOTE_POST_URL_RE.search(trimmed_line)
+    findings: list[Finding] = _detect_wp_http_api(content=content, relative_file=relative_file)
+
+    for line_no, line in enumerate(content.splitlines(), start=1):
+        trimmed_line = line.strip()
+        if not trimmed_line:
+            continue
+
+        if REGISTER_REST_ROUTE_RE.search(trimmed_line):
+            route_args_match = REGISTER_REST_ROUTE_ARGS_RE.search(trimmed_line)
+            rest_url = None
+            if route_args_match:
+                namespace = route_args_match.group("namespace")
+                route = route_args_match.group("route")
+                rest_url = f"/wp-json/{namespace}{route}"
+
+            for method, confidence in _extract_rest_methods(trimmed_line):
                 findings.append(
                     _make_finding(
                         relative_file=relative_file,
                         line_no=line_no,
-                        method="POST",
-                        kind="wp_http_api",
+                        method=method,
+                        kind="rest_route",
                         evidence=trimmed_line,
-                        confidence="high",
-                        url=remote_post_match.group("url") if remote_post_match else None,
+                        confidence=confidence,
+                        url=rest_url,
                     )
                 )
 
-            if WP_REMOTE_REQUEST_RE.search(trimmed_line):
-                request_method_match = HTTP_METHOD_RE.search(trimmed_line)
-                if request_method_match:
-                    request_url_match = WP_REMOTE_REQUEST_URL_RE.search(trimmed_line)
-                    findings.append(
-                        _make_finding(
-                            relative_file=relative_file,
-                            line_no=line_no,
-                            method=request_method_match.group(1).upper(),
-                            kind="wp_http_api",
-                            evidence=trimmed_line,
-                            confidence="high",
-                            url=request_url_match.group("url") if request_url_match else None,
-                        )
-                    )
-
-            if REGISTER_REST_ROUTE_RE.search(trimmed_line):
-                route_args_match = REGISTER_REST_ROUTE_ARGS_RE.search(trimmed_line)
-                rest_url = None
-                if route_args_match:
-                    namespace = route_args_match.group("namespace")
-                    route = route_args_match.group("route")
-                    rest_url = f"/wp-json/{namespace}{route}"
-
-                for method, confidence in _extract_rest_methods(trimmed_line):
-                    findings.append(
-                        _make_finding(
-                            relative_file=relative_file,
-                            line_no=line_no,
-                            method=method,
-                            kind="rest_route",
-                            evidence=trimmed_line,
-                            confidence=confidence,
-                            url=rest_url,
-                        )
-                    )
-
-            if ADMIN_POST_RE.search(trimmed_line):
-                findings.append(
-                    _make_finding(
-                        relative_file=relative_file,
-                        line_no=line_no,
-                        method="UNKNOWN",
-                        kind="admin_post",
-                        evidence=trimmed_line,
-                        confidence="medium",
-                    )
+        if ADMIN_POST_RE.search(trimmed_line):
+            findings.append(
+                _make_finding(
+                    relative_file=relative_file,
+                    line_no=line_no,
+                    method="UNKNOWN",
+                    kind="admin_post",
+                    evidence=trimmed_line,
+                    confidence="medium",
                 )
+            )
 
-            ajax_match = AJAX_RE.search(trimmed_line)
-            if ajax_match:
-                action_name = ajax_match.group("action")
-                findings.append(
-                    _make_finding(
-                        relative_file=relative_file,
-                        line_no=line_no,
-                        method="UNKNOWN",
-                        kind="ajax",
-                        evidence=trimmed_line,
-                        confidence="medium",
-                        url=f"/wp-admin/admin-ajax.php?action={action_name}",
-                    )
+        ajax_match = AJAX_RE.search(trimmed_line)
+        if ajax_match:
+            action_name = ajax_match.group("action")
+            findings.append(
+                _make_finding(
+                    relative_file=relative_file,
+                    line_no=line_no,
+                    method="UNKNOWN",
+                    kind="ajax",
+                    evidence=trimmed_line,
+                    confidence="medium",
+                    url=f"/wp-admin/admin-ajax.php?action={action_name}",
                 )
+            )
 
     return findings

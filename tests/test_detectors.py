@@ -32,16 +32,17 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
         "\n".join(
             [
                 "<?php",
+                "$resolved_url = 'https://api.wordpress.org/plugins/update-check/1.1/';",
+                "wp_remote_post($resolved_url, $args);",
                 "wp_remote_post('https://example.com/foo', $args);",
                 "wp_remote_post($dynamic_url);",
-                'wp_remote_request("https://example.test", [\'method\' => \'PATCH\']);',
-                "wp_remote_request($request_url, ['method' => 'PUT']);",
-                "wp_remote_post('https://example.com/multi',",
-                "    $args",
+                "wp_remote_request(",
+                '    "https://example.test",',
+                "    ['method' => 'PATCH']",
                 ");",
-                'wp_remote_request("https://example.test/multi", [\'method\' => \'POST\',',
-                "    'timeout' => 10",
-                "]);",
+                "wp_remote_request($request_url, ['method' => 'PUT']);",
+                "wp_remote_get('https://example.test/get');",
+                "wp_remote_request('https://example.test/ignored', ['method' => 'GET']);",
                 "register_rest_route('demo/v1', '/items', ['methods' => ['POST', 'PUT']]);",
                 "register_rest_route('demo/v1', '/edit', ['methods' => 'EDITABLE']);",
                 "register_rest_route('demo/v1', '/create', ['methods' => 'CREATABLE']);",
@@ -57,7 +58,15 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
 
     assert _has_finding(
         findings,
-        line=2,
+        line=3,
+        method="POST",
+        kind="wp_http_api",
+        url="https://api.wordpress.org/plugins/update-check/1.1/",
+        confidence="medium",
+    )
+    assert _has_finding(
+        findings,
+        line=4,
         method="POST",
         kind="wp_http_api",
         url="https://example.com/foo",
@@ -65,15 +74,15 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
     )
     assert _has_finding(
         findings,
-        line=3,
+        line=5,
         method="POST",
         kind="wp_http_api",
         url=None,
-        confidence="high",
+        confidence="medium",
     )
     assert _has_finding(
         findings,
-        line=4,
+        line=6,
         method="PATCH",
         kind="wp_http_api",
         url="https://example.test",
@@ -81,41 +90,21 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
     )
     assert _has_finding(
         findings,
-        line=5,
+        line=10,
         method="PUT",
         kind="wp_http_api",
         url=None,
-        confidence="high",
+        confidence="medium",
     )
-    assert _has_finding(
-        findings,
-        line=6,
-        method="POST",
-        kind="wp_http_api",
-        url="https://example.com/multi",
-        confidence="high",
-    )
-    assert _has_finding(
-        findings,
-        line=9,
-        method="POST",
-        kind="wp_http_api",
-        url="https://example.test/multi",
-        confidence="high",
+    assert not any(
+        finding["kind"] == "wp_http_api" and finding["method"] == "GET"
+        for finding in findings
     )
 
     assert _has_finding(
         findings,
-        line=12,
+        line=13,
         method="POST",
-        kind="rest_route",
-        url="/wp-json/demo/v1/items",
-        confidence="high",
-    )
-    assert _has_finding(
-        findings,
-        line=12,
-        method="PUT",
         kind="rest_route",
         url="/wp-json/demo/v1/items",
         confidence="high",
@@ -125,12 +114,20 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
         line=13,
         method="PUT",
         kind="rest_route",
+        url="/wp-json/demo/v1/items",
+        confidence="high",
+    )
+    assert _has_finding(
+        findings,
+        line=14,
+        method="PUT",
+        kind="rest_route",
         url="/wp-json/demo/v1/edit",
         confidence="medium",
     )
     assert _has_finding(
         findings,
-        line=14,
+        line=15,
         method="POST",
         kind="rest_route",
         url="/wp-json/demo/v1/create",
@@ -139,7 +136,7 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
 
     assert _has_finding(
         findings,
-        line=15,
+        line=16,
         method="UNKNOWN",
         kind="ajax",
         url="/wp-admin/admin-ajax.php?action=my_action",
@@ -147,9 +144,14 @@ def test_detector_extracts_methods_urls_and_confidence_from_patterns(tmp_path: P
     )
     assert _has_finding(
         findings,
-        line=16,
+        line=17,
         method="UNKNOWN",
         kind="ajax",
         url="/wp-admin/admin-ajax.php?action=guest_action",
         confidence="medium",
     )
+
+    http_api_evidences = [
+        finding["evidence"] for finding in findings if finding["kind"] == "wp_http_api"
+    ]
+    assert "wp_remote_request(" in http_api_evidences
