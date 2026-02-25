@@ -4,6 +4,10 @@
 
 The tool analyzes WordPress core, themes, and plugins to detect potential write operations, helping developers and security researchers understand the application's attack surface and data modification entry points.
 
+## Demo
+
+![wordpress-scan demo](assets/wordpress-scan-demo.gif)
+
 ## Requirements
 
 - Python `3.12+`
